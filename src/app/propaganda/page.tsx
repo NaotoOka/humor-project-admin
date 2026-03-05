@@ -1,6 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { AdminLayout } from "@/components/AdminLayout";
 import { redirect } from "next/navigation";
+import type { Database } from "@/lib/supabase/database.types";
+
+type NewsSnippet = Database["public"]["Tables"]["news_snippets"]["Row"];
 
 export default async function PropagandaPage() {
     const supabase = await createClient();
@@ -17,7 +20,7 @@ export default async function PropagandaPage() {
         .from("news_snippets")
         .select("*")
         .order("created_at", { ascending: false })
-        .limit(10);
+        .limit(10) as { data: NewsSnippet[] | null };
 
     // Fetch community contexts
     const { data: contexts } = await supabase
