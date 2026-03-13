@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLayout } from "@/components/AdminLayout";
 import { UserDossier } from "@/components/UserDossier";
 import { UserTimeline } from "@/components/UserTimeline";
@@ -31,7 +32,19 @@ export default async function UserDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  const profile = profileData as Profile;
+  const fetchedProfile = profileData as Profile;
+
+  // Fetch auth user metadata to get display name (requires admin client)
+  const adminClient = createAdminClient();
+  const { data: authUserData } = await adminClient.auth.admin.getUserById(userId);
+
+  // Use auth metadata for names if profile names are null
+  const authMetadata = authUserData?.user?.user_metadata as { first_name?: string; last_name?: string; full_name?: string } | undefined;
+  const profile: Profile = {
+    ...fetchedProfile,
+    first_name: fetchedProfile.first_name ?? authMetadata?.first_name ?? authMetadata?.full_name?.split(' ')[0] ?? null,
+    last_name: fetchedProfile.last_name ?? authMetadata?.last_name ?? authMetadata?.full_name?.split(' ').slice(1).join(' ') ?? null,
+  };
 
   // Fetch university mapping with university name
   const { data: universityMapping } = await supabase
@@ -70,11 +83,14 @@ export default async function UserDetailPage({ params }: PageProps) {
     .order("created_datetime_utc", { ascending: false })
     .limit(10);
 
-  // Fetch user's likes
-  const { count: likeCount } = await supabase
-    .from("caption_likes")
-    .select("*", { count: "exact", head: true })
-    .eq("profile_id", userId);
+  // Fetch user's votes (upvotes and downvotes)
+  const { data: userVotes } = await supabase
+    .from("caption_votes")
+    .select("vote_value")
+    .eq("profile_id", userId) as { data: { vote_value: number }[] | null };
+
+  const upvoteCount = userVotes?.filter(v => v.vote_value > 0).length || 0;
+  const downvoteCount = userVotes?.filter(v => v.vote_value < 0).length || 0;
 
   // Fetch user's saves
   const { count: saveCount } = await supabase
@@ -157,7 +173,8 @@ export default async function UserDetailPage({ params }: PageProps) {
     stats: {
       imageCount: imageCount || 0,
       captionCount: captionCount || 0,
-      likeCount: likeCount || 0,
+      upvoteCount,
+      downvoteCount,
       saveCount: saveCount || 0,
       shareCount: shareCount || 0,
       screenshotCount: screenshotCount || 0,

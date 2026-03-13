@@ -29,10 +29,27 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Refresh session if expired
+  // Refresh session if expired - handle invalid refresh tokens gracefully
   const {
     data: { user },
+    error,
   } = await supabase.auth.getUser();
+
+  // If refresh token is invalid, clear the session and redirect to login
+  if (error?.code === "refresh_token_not_found") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    const response = NextResponse.redirect(url);
+    // Clear all Supabase auth cookies
+    response.cookies.delete("sb-access-token");
+    response.cookies.delete("sb-refresh-token");
+    request.cookies.getAll().forEach((cookie) => {
+      if (cookie.name.includes("supabase") || cookie.name.startsWith("sb-")) {
+        response.cookies.delete(cookie.name);
+      }
+    });
+    return response;
+  }
 
   // Public routes that don't require authentication
   const isPublicRoute =

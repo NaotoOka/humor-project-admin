@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { DeleteImageModal } from "./DeleteImageModal";
 import type { Database } from "@/lib/supabase/database.types";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
@@ -30,7 +32,8 @@ interface DossierData {
   stats: {
     imageCount: number;
     captionCount: number;
-    likeCount: number;
+    upvoteCount: number;
+    downvoteCount: number;
     saveCount: number;
     shareCount: number;
     screenshotCount: number;
@@ -94,7 +97,7 @@ export function UserDossier({ data }: UserDossierProps) {
       <div className="p-6">
         {activeTab === "overview" && <OverviewTab data={data} />}
         {activeTab === "psychology" && <PsychologyTab data={data} />}
-        {activeTab === "images" && <ImagesTab images={data.images} total={data.stats.imageCount} />}
+        {activeTab === "images" && <ImagesTab images={data.images} total={data.stats.imageCount} profileId={data.profile.id} />}
         {activeTab === "captions" && <CaptionsTab captions={data.captions} total={data.stats.captionCount} />}
         {activeTab === "engagement" && <EngagementTab data={data} />}
         {activeTab === "reports" && <ReportsTab data={data} />}
@@ -106,7 +109,7 @@ export function UserDossier({ data }: UserDossierProps) {
 
 function PsychologyTab({ data }: { data: DossierData }) {
   // Calculate some "abusive" pseudostats
-  const witScore = Math.min(100, (data.stats.likeCount / (data.stats.captionCount || 1)) * 10);
+  const witScore = Math.min(100, (data.stats.upvoteCount / (data.stats.captionCount || 1)) * 10);
   const toxicityIndex = Math.min(100, (data.stats.reportsAgainst * 25));
   const narcissismRatio = Math.min(100, (data.stats.screenshotCount / (data.stats.imageCount || 1)) * 100);
   const socialAgentScore = Math.min(100, (data.stats.shareCount * 15));
@@ -235,7 +238,8 @@ function OverviewTab({ data }: { data: DossierData }) {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <StatCard label="Images" value={data.stats.imageCount} icon="image" />
           <StatCard label="Captions" value={data.stats.captionCount} icon="caption" />
-          <StatCard label="Likes Given" value={data.stats.likeCount} icon="heart" />
+          <StatCard label="Upvotes" value={data.stats.upvoteCount} icon="upvote" />
+          <StatCard label="Downvotes" value={data.stats.downvoteCount} icon="downvote" />
           <StatCard label="Saves" value={data.stats.saveCount} icon="bookmark" />
           <StatCard label="Shares" value={data.stats.shareCount} icon="share" />
           <StatCard label="Screenshots" value={data.stats.screenshotCount} icon="camera" />
@@ -263,17 +267,101 @@ function OverviewTab({ data }: { data: DossierData }) {
   );
 }
 
-function ImagesTab({ images, total }: { images: Image[]; total: number }) {
-  if (images.length === 0) {
+function ImagesTab({ images: initialImages, total, profileId }: { images: Image[]; total: number; profileId: string }) {
+  const router = useRouter();
+  const [selectedImage, setSelectedImage] = useState<Image | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [images, setImages] = useState<Image[]>(initialImages);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const ITEMS_PER_PAGE = 10;
+  const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
+
+  const handleDeleteClick = (image: Image, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedImage(image);
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleted = () => {
+    setShowDeleteModal(false);
+    setSelectedImage(null);
+    router.refresh();
+  };
+
+  const fetchPage = async (page: number) => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/users/${profileId}/images?page=${page}&limit=${ITEMS_PER_PAGE}`);
+      if (response.ok) {
+        const data = await response.json();
+        setImages(data.images);
+        setCurrentPage(page);
+      }
+    } catch (error) {
+      console.error("Failed to fetch images:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const goToPrevious = () => {
+    if (currentPage > 0) {
+      fetchPage(currentPage - 1);
+    }
+  };
+
+  const goToNext = () => {
+    if (currentPage < totalPages - 1) {
+      fetchPage(currentPage + 1);
+    }
+  };
+
+  if (total === 0) {
     return <EmptyState message="No images uploaded by this user" />;
   }
 
+  const startIndex = currentPage * ITEMS_PER_PAGE + 1;
+  const endIndex = Math.min((currentPage + 1) * ITEMS_PER_PAGE, total);
+
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted">
-        Showing {images.length} of {total} images
-      </p>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+      {/* Pagination header */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted">
+          Showing {startIndex}-{endIndex} of {total} images
+        </p>
+        {totalPages > 1 && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={goToPrevious}
+              disabled={currentPage === 0 || loading}
+              className="p-2 rounded-lg border border-border hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Previous page"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <span className="text-sm text-muted">
+              {currentPage + 1} / {totalPages}
+            </span>
+            <button
+              onClick={goToNext}
+              disabled={currentPage >= totalPages - 1 || loading}
+              className="p-2 rounded-lg border border-border hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Next page"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Images grid */}
+      <div className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 ${loading ? "opacity-50" : ""}`}>
         {images.map((image) => (
           <div key={image.id} className="group relative aspect-square rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800">
             {image.url ? (
@@ -288,20 +376,54 @@ function ImagesTab({ images, total }: { images: Image[]; total: number }) {
                 No URL
               </div>
             )}
-            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity p-2 flex flex-col justify-end">
-              <p className="text-xs text-white truncate">{image.id.slice(0, 8)}...</p>
-              <div className="flex gap-1 mt-1">
-                {image.is_public && (
-                  <span className="text-xs bg-green-500/80 text-white px-1 rounded">Public</span>
-                )}
-                {image.is_common_use && (
-                  <span className="text-xs bg-blue-500/80 text-white px-1 rounded">Common</span>
-                )}
+            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity p-2 flex flex-col justify-between">
+              {/* Delete button */}
+              <div className="flex justify-end">
+                <button
+                  onClick={(e) => handleDeleteClick(image, e)}
+                  className="p-1.5 rounded bg-red-500/90 text-white hover:bg-red-600 transition-colors"
+                  title="Delete image"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+              {/* Image info */}
+              <div>
+                <p className="text-xs text-white truncate">{image.id.slice(0, 8)}...</p>
+                <div className="flex gap-1 mt-1">
+                  {image.is_public && (
+                    <span className="text-xs bg-green-500/80 text-white px-1 rounded">Public</span>
+                  )}
+                  {image.is_common_use && (
+                    <span className="text-xs bg-blue-500/80 text-white px-1 rounded">Common</span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Loading indicator */}
+      {loading && (
+        <div className="flex justify-center py-4">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-500" />
+        </div>
+      )}
+
+      {/* Delete Modal */}
+      {showDeleteModal && selectedImage && (
+        <DeleteImageModal
+          image={selectedImage}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setSelectedImage(null);
+          }}
+          onDeleted={handleDeleted}
+        />
+      )}
     </div>
   );
 }
@@ -336,7 +458,6 @@ function CaptionsTab({ captions, total }: { captions: Caption[]; total: number }
               <p className="text-foreground">{caption.content || "No content"}</p>
               <div className="flex items-center gap-3 mt-2 text-xs text-muted">
                 <span>{new Date(caption.created_datetime_utc).toLocaleDateString()}</span>
-                <span>{caption.like_count} likes</span>
                 <div className="flex gap-1">
                   {caption.is_public && (
                     <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded">
@@ -362,8 +483,9 @@ function EngagementTab({ data }: { data: DossierData }) {
   return (
     <div className="space-y-6">
       {/* Engagement Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Likes Given" value={data.stats.likeCount} icon="heart" />
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <StatCard label="Upvotes" value={data.stats.upvoteCount} icon="upvote" />
+        <StatCard label="Downvotes" value={data.stats.downvoteCount} icon="downvote" />
         <StatCard label="Captions Saved" value={data.stats.saveCount} icon="bookmark" />
         <StatCard label="Shares" value={data.stats.shareCount} icon="share" />
         <StatCard label="Screenshots" value={data.stats.screenshotCount} icon="camera" />
@@ -548,6 +670,16 @@ function StatCard({
     heart: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+      </svg>
+    ),
+    upvote: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+      </svg>
+    ),
+    downvote: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
       </svg>
     ),
     bookmark: (

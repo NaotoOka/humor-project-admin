@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLayout } from "@/components/AdminLayout";
 import { UserFilters } from "@/components/UserFilters";
 import { Pagination } from "@/components/Pagination";
@@ -6,6 +7,7 @@ import Link from "next/link";
 import type { Database } from "@/lib/supabase/database.types";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
+type AuthMetadata = { first_name?: string; last_name?: string; full_name?: string };
 
 const ITEMS_PER_PAGE = 20;
 
@@ -30,14 +32,46 @@ export default async function UsersPage({ searchParams }: PageProps) {
   const status = params.status || "";
   const currentPage = Math.max(1, parseInt(params.page || "1", 10));
 
+  const adminClient = createAdminClient();
+
+  // If searching, also search auth users by name (some users have names only in auth metadata)
+  let authUserIds: string[] = [];
+  if (search) {
+    const searchLower = search.toLowerCase();
+    const { data: authData } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
+    if (authData?.users) {
+      authUserIds = authData.users
+        .filter((u) => {
+          const meta = u.user_metadata as AuthMetadata | undefined;
+          const firstName = meta?.first_name?.toLowerCase() || "";
+          const lastName = meta?.last_name?.toLowerCase() || "";
+          const fullName = meta?.full_name?.toLowerCase() || "";
+          const email = u.email?.toLowerCase() || "";
+          return (
+            firstName.includes(searchLower) ||
+            lastName.includes(searchLower) ||
+            fullName.includes(searchLower) ||
+            email.includes(searchLower)
+          );
+        })
+        .map((u) => u.id);
+    }
+  }
+
   // Build filtered query
   let query = supabase.from("profiles").select("*", { count: "exact" });
 
-  // Apply search filter
+  // Apply search filter - search profiles table OR include users found in auth metadata
   if (search) {
-    query = query.or(
-      `first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`
-    );
+    if (authUserIds.length > 0) {
+      query = query.or(
+        `first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,id.in.(${authUserIds.join(",")})`
+      );
+    } else {
+      query = query.or(
+        `first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`
+      );
+    }
   }
 
   // Apply role filter
@@ -66,6 +100,47 @@ export default async function UsersPage({ searchParams }: PageProps) {
 
   const totalItems = count || 0;
   const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+
+  // Fetch auth metadata for users with missing names
+  const authMetadataMap = new Map<string, AuthMetadata>();
+
+  if (profiles) {
+    const usersNeedingMetadata = profiles.filter(p => !p.first_name);
+    if (usersNeedingMetadata.length > 0) {
+      const authPromises = usersNeedingMetadata.map(async (profile) => {
+        const { data } = await adminClient.auth.admin.getUserById(profile.id);
+        if (data?.user?.user_metadata) {
+          authMetadataMap.set(profile.id, data.user.user_metadata as AuthMetadata);
+        }
+      });
+      await Promise.all(authPromises);
+    }
+  }
+
+  // Helper to get display name
+  const getDisplayName = (profile: Profile): string => {
+    if (profile.first_name && profile.last_name) {
+      return `${profile.first_name} ${profile.last_name}`;
+    }
+    const authMeta = authMetadataMap.get(profile.id);
+    if (authMeta) {
+      const firstName = authMeta.first_name || authMeta.full_name?.split(' ')[0];
+      const lastName = authMeta.last_name || authMeta.full_name?.split(' ').slice(1).join(' ');
+      if (firstName) {
+        return `${firstName}${lastName ? ` ${lastName}` : ''}`;
+      }
+    }
+    return "Unknown User";
+  };
+
+  const getInitial = (profile: Profile): string => {
+    if (profile.first_name) return profile.first_name[0].toUpperCase();
+    const authMeta = authMetadataMap.get(profile.id);
+    if (authMeta?.first_name) return authMeta.first_name[0].toUpperCase();
+    if (authMeta?.full_name) return authMeta.full_name[0].toUpperCase();
+    if (profile.email) return profile.email[0].toUpperCase();
+    return "U";
+  };
 
   return (
     <AdminLayout user={user}>
@@ -123,13 +198,11 @@ export default async function UsersPage({ searchParams }: PageProps) {
                       <td className="px-6 py-4">
                         <Link href={`/users/${profile.id}`} className="flex items-center gap-3">
                           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-purple-700 text-sm font-medium text-white">
-                            {(profile.first_name?.[0] || profile.email?.[0] || "U").toUpperCase()}
+                            {getInitial(profile)}
                           </div>
                           <div>
                             <p className="font-medium text-foreground group-hover:text-purple-500 transition-colors">
-                              {profile.first_name && profile.last_name
-                                ? `${profile.first_name} ${profile.last_name}`
-                                : "Unknown User"}
+                              {getDisplayName(profile)}
                             </p>
                             <p className="text-sm text-muted">
                               ID: {profile.id.slice(0, 8)}...

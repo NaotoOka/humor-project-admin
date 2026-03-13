@@ -1,6 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLayout } from "@/components/AdminLayout";
 import { redirect } from "next/navigation";
+
+type AuthMetadata = { first_name?: string; last_name?: string; full_name?: string };
 
 export default async function MatrixPage() {
     const supabase = await createClient();
@@ -39,6 +42,39 @@ export default async function MatrixPage() {
     `)
         .eq("is_superadmin", true);
 
+    // Fetch auth metadata for superadmins with missing names
+    const adminClient = createAdminClient();
+    const authMetadataMap = new Map<string, AuthMetadata>();
+
+    if (superadmins) {
+        const usersNeedingMetadata = superadmins.filter((p: any) => !p.first_name);
+        if (usersNeedingMetadata.length > 0) {
+            const authPromises = usersNeedingMetadata.map(async (admin: any) => {
+                const { data } = await adminClient.auth.admin.getUserById(admin.id);
+                if (data?.user?.user_metadata) {
+                    authMetadataMap.set(admin.id, data.user.user_metadata as AuthMetadata);
+                }
+            });
+            await Promise.all(authPromises);
+        }
+    }
+
+    // Helper to get display name
+    const getDisplayName = (admin: any): string => {
+        if (admin.first_name && admin.last_name) {
+            return `${admin.first_name} ${admin.last_name}`;
+        }
+        const authMeta = authMetadataMap.get(admin.id);
+        if (authMeta) {
+            const firstName = authMeta.first_name || authMeta.full_name?.split(' ')[0];
+            const lastName = authMeta.last_name || authMeta.full_name?.split(' ').slice(1).join(' ');
+            if (firstName) {
+                return `${firstName}${lastName ? ` ${lastName}` : ''}`;
+            }
+        }
+        return "Unknown Admin";
+    };
+
     return (
         <AdminLayout user={user}>
             <div className="space-y-8">
@@ -75,7 +111,7 @@ export default async function MatrixPage() {
                                     {(superadmins as any)?.map((admin: any) => (
                                         <tr key={admin.id} className="text-sm hover:bg-white/[0.02] transition-colors">
                                             <td className="px-6 py-4">
-                                                <div className="font-medium text-foreground">{admin.first_name} {admin.last_name}</div>
+                                                <div className="font-medium text-foreground">{getDisplayName(admin)}</div>
                                                 <div className="text-xs text-muted-foreground">{admin.email}</div>
                                             </td>
                                             <td className="px-6 py-4">

@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLayout } from "@/components/AdminLayout";
+import { AccessControlManager } from "@/components/AccessControlManager";
 import { redirect } from "next/navigation";
 
 export default async function CampusControlPage() {
@@ -11,6 +13,8 @@ export default async function CampusControlPage() {
     if (!user) {
         redirect("/login");
     }
+
+    const adminClient = createAdminClient();
 
     // Fetch University stats
     const { data: universities } = await supabase
@@ -33,7 +37,7 @@ export default async function CampusControlPage() {
         .limit(10);
 
     // Fetch Allowed Domains
-    const { data: domains } = await supabase
+    const { data: domains } = await adminClient
         .from("allowed_signup_domains")
         .select("*")
         .order("apex_domain");
@@ -107,26 +111,11 @@ export default async function CampusControlPage() {
                         </div>
                     </section>
 
-                    {/* Domain Gatekeeper */}
-                    <section className="space-y-4">
-                        <h2 className="text-xl font-semibold flex items-center gap-2">
-                            <span className="h-2 w-2 bg-red-500 rounded-full"></span>
-                            Domain Gatekeeper
-                        </h2>
-                        <div className="glass-card p-6 space-y-6">
-                            <p className="text-xs text-muted leading-relaxed">
-                                Only users with email addresses from these apex domains are permitted to join the experiment.
-                            </p>
-
-                            <div className="space-y-2">
-                                {domains?.map((domain: any) => (
-                                    <div key={domain.id} className="flex items-center justify-between p-3 bg-black/40 rounded-lg border border-white/5">
-                                        <span className="text-sm font-mono text-indigo-300">@{domain.apex_domain}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
+                    {/* Access Control - Domains */}
+                    <section>
+                        <AccessControlManager
+                            domains={domains || []}
+                        />
                     </section>
                 </div>
             </div>

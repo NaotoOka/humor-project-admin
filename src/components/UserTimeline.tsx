@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 
 interface TimelineEvent {
   id: string;
-  type: "image" | "caption" | "like" | "save" | "share" | "screenshot" | "report" | "bug";
+  type: "image" | "caption" | "upvote" | "downvote" | "save" | "share" | "screenshot" | "report" | "bug";
   timestamp: string;
   description: string;
   metadata?: Record<string, unknown>;
@@ -31,10 +31,11 @@ interface CaptionRow {
   is_featured: boolean;
 }
 
-interface LikeRow {
+interface VoteRow {
   id: number;
   created_datetime_utc: string;
   caption_id: string;
+  vote_value: number;
   captions: { content: string | null } | null;
 }
 
@@ -116,22 +117,23 @@ export function UserTimeline({ userId }: UserTimelineProps) {
         });
       });
 
-      // Fetch likes
-      const { data: likes } = await supabase
-        .from("caption_likes")
-        .select("id, created_datetime_utc, caption_id, captions(content)")
+      // Fetch votes (upvotes and downvotes)
+      const { data: votes } = await supabase
+        .from("caption_votes")
+        .select("id, created_datetime_utc, caption_id, vote_value, captions(content)")
         .eq("profile_id", userId)
         .order("created_datetime_utc", { ascending: false })
-        .limit(50) as { data: LikeRow[] | null };
+        .limit(50) as { data: VoteRow[] | null };
 
-      likes?.forEach((like) => {
-        const caption = like.captions;
+      votes?.forEach((vote) => {
+        const caption = vote.captions;
+        const isUpvote = vote.vote_value > 0;
         allEvents.push({
-          id: `like-${like.id}`,
-          type: "like",
-          timestamp: like.created_datetime_utc,
-          description: `Liked a caption: "${caption?.content?.slice(0, 30)}${(caption?.content?.length || 0) > 30 ? "..." : ""}"`,
-          metadata: { captionId: like.caption_id },
+          id: `vote-${vote.id}`,
+          type: isUpvote ? "upvote" : "downvote",
+          timestamp: vote.created_datetime_utc,
+          description: `${isUpvote ? "Upvoted" : "Downvoted"} a caption: "${caption?.content?.slice(0, 30)}${(caption?.content?.length || 0) > 30 ? "..." : ""}"`,
+          metadata: { captionId: vote.caption_id, voteValue: vote.vote_value },
         });
       });
 
@@ -256,11 +258,12 @@ export function UserTimeline({ userId }: UserTimelineProps) {
   const typeColors: Record<string, string> = {
     image: "bg-blue-500",
     caption: "bg-purple-500",
-    like: "bg-pink-500",
+    upvote: "bg-green-500",
+    downvote: "bg-red-500",
     save: "bg-amber-500",
-    share: "bg-green-500",
+    share: "bg-teal-500",
     screenshot: "bg-cyan-500",
-    report: "bg-red-500",
+    report: "bg-rose-500",
     bug: "bg-orange-500",
   };
 
@@ -275,9 +278,14 @@ export function UserTimeline({ userId }: UserTimelineProps) {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
       </svg>
     ),
-    like: (
+    upvote: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+      </svg>
+    ),
+    downvote: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
       </svg>
     ),
     save: (
@@ -312,7 +320,8 @@ export function UserTimeline({ userId }: UserTimelineProps) {
     { key: "all", label: "All" },
     { key: "image", label: "Images" },
     { key: "caption", label: "Captions" },
-    { key: "like", label: "Likes" },
+    { key: "upvote", label: "Upvotes" },
+    { key: "downvote", label: "Downvotes" },
     { key: "save", label: "Saves" },
     { key: "share", label: "Shares" },
     { key: "screenshot", label: "Screenshots" },

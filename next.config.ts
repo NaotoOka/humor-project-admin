@@ -9,6 +9,14 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "images.almostcrackd.ai",
       },
+      {
+        protocol: "https",
+        hostname: "secure.almostcrackd.ai",
+      },
+      {
+        protocol: "https",
+        hostname: "upload.wikimedia.org",
+      },
     ],
   },
 };

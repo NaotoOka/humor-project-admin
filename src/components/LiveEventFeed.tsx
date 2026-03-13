@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 type EventType = {
     type: string;
@@ -6,6 +7,12 @@ type EventType = {
     bgColor: string;
     textColor: string;
     description: (event: any) => string;
+};
+
+type AuthMetadata = {
+    first_name?: string;
+    last_name?: string;
+    full_name?: string;
 };
 
 const EVENT_CONFIG: Record<string, EventType> = {
@@ -24,58 +31,117 @@ const EVENT_CONFIG: Record<string, EventType> = {
 
 export async function LiveEventFeed() {
     const supabase = await createClient();
+    const adminClient = createAdminClient();
+
+    // Helper to safely fetch data - returns empty array on error
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const safeFetch = async (queryBuilder: PromiseLike<{ data: any[] | null; error: any }>): Promise<any[]> => {
+        try {
+            const { data, error } = await queryBuilder;
+            if (error) {
+                console.error("Query error:", error);
+                return [];
+            }
+            return data || [];
+        } catch (err) {
+            console.error("Fetch error:", err);
+            return [];
+        }
+    };
 
     // Fetch recent events from multiple tables with proper profile joins
     const [
-        { data: recentShares },
-        { data: recentReports },
-        { data: recentScreenshots },
-        { data: recentLikes },
-        { data: recentSaves },
-        { data: recentVotes },
-        { data: recentCaptionRequests },
-        { data: recentImages },
-        { data: recentBugs },
-        { data: recentProfiles },
-        { data: recentImageReports },
+        recentShares,
+        recentReports,
+        recentScreenshots,
+        recentLikes,
+        recentSaves,
+        recentVotes,
+        recentCaptionRequests,
+        recentImages,
+        recentBugs,
+        recentProfiles,
+        recentImageReports,
     ] = await Promise.all([
-        supabase.from("shares").select("*, profiles!shares_profile_id_fkey(first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25),
-        supabase.from("reported_captions").select("*, profiles!reported_captions_profile_id_fkey(first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25),
-        supabase.from("screenshots").select("*, profiles!screenshots_profile_id_fkey(first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25),
-        supabase.from("caption_likes").select("*, profiles!caption_likes_profile_id_fkey(first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25),
-        supabase.from("caption_saved").select("*, profiles!caption_saved_profile_id_fkey(first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25),
-        supabase.from("caption_votes").select("*, profiles!caption_votes_profile_id_fkey(first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25),
-        supabase.from("caption_requests").select("*, profiles!caption_requests_profile_id_fkey(first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25),
-        supabase.from("images").select("*, profiles!images_profile_id_fkey(first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25),
-        supabase.from("bug_reports").select("*, profiles!bug_reports_profile_id_fkey(first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(20),
-        supabase.from("profiles").select("first_name, last_name, created_datetime_utc, id").order("created_datetime_utc", { ascending: false }).limit(20),
-        supabase.from("reported_images").select("*, profiles!reported_images_profile_id_fkey(first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(20),
+        safeFetch(supabase.from("shares").select("*, profiles!shares_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
+        safeFetch(supabase.from("reported_captions").select("*, profiles!reported_captions_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
+        safeFetch(supabase.from("screenshots").select("*, profiles!screenshots_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
+        safeFetch(supabase.from("caption_likes").select("*, profiles!caption_likes_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
+        safeFetch(supabase.from("caption_saved").select("*, profiles!caption_saved_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
+        safeFetch(supabase.from("caption_votes").select("*, profiles!caption_votes_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
+        safeFetch(supabase.from("caption_requests").select("*, profiles!caption_requests_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
+        safeFetch(supabase.from("images").select("*, profiles!images_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
+        safeFetch(supabase.from("bug_reports").select("*, profiles!bug_reports_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(20)),
+        safeFetch(supabase.from("profiles").select("first_name, last_name, created_datetime_utc, id").order("created_datetime_utc", { ascending: false }).limit(20)),
+        safeFetch(supabase.from("reported_images").select("*, profiles!reported_images_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(20)),
     ]);
 
-    // Helper to extract profile name from various data structures
-    const extractProfile = (record: any) => {
-        // Try different possible profile field names
-        if (record.profiles?.first_name) return record.profiles;
-        if (record.profile?.first_name) return record.profile;
-        // For direct profile records (signups)
-        if (record.first_name) return record;
+    // Helper to extract profile from various data structures
+    const extractProfileData = (record: any): { id?: string; first_name?: string; last_name?: string } | null => {
+        if (record.profiles?.id) return record.profiles;
+        if (record.profile?.id) return record.profile;
+        if (record.id && record.eventType === 'SIGNUP') return record;
         return null;
     };
 
     const allEvents = [
-        ...(recentShares || []).map(s => ({ ...(s as any), eventType: 'SHARE' })),
-        ...(recentReports || []).map(r => ({ ...(r as any), eventType: 'REPORT' })),
-        ...(recentScreenshots || []).map(sc => ({ ...(sc as any), eventType: 'SCREENSHOT' })),
-        ...(recentLikes || []).map(l => ({ ...(l as any), eventType: 'LIKE' })),
-        ...(recentSaves || []).map(s => ({ ...(s as any), eventType: 'SAVE' })),
-        ...(recentVotes || []).map(v => ({ ...(v as any), eventType: 'VOTE' })),
-        ...(recentCaptionRequests || []).map(cr => ({ ...(cr as any), eventType: 'CAPTION_REQ' })),
-        ...(recentImages || []).map(i => ({ ...(i as any), eventType: 'IMAGE' })),
-        ...(recentBugs || []).map(b => ({ ...(b as any), eventType: 'BUG' })),
-        ...(recentProfiles || []).map(p => ({ ...(p as any), eventType: 'SIGNUP' })),
-        ...(recentImageReports || []).map(ir => ({ ...(ir as any), eventType: 'IMG_REPORT' })),
-    ].sort((a, b) => new Date((b as any).created_datetime_utc).getTime() - new Date((a as any).created_datetime_utc).getTime())
+        ...recentShares.map((s: any) => ({ ...s, eventType: 'SHARE' })),
+        ...recentReports.map((r: any) => ({ ...r, eventType: 'REPORT' })),
+        ...recentScreenshots.map((sc: any) => ({ ...sc, eventType: 'SCREENSHOT' })),
+        ...recentLikes.map((l: any) => ({ ...l, eventType: 'LIKE' })),
+        ...recentSaves.map((s: any) => ({ ...s, eventType: 'SAVE' })),
+        ...recentVotes.map((v: any) => ({ ...v, eventType: 'VOTE' })),
+        ...recentCaptionRequests.map((cr: any) => ({ ...cr, eventType: 'CAPTION_REQ' })),
+        ...recentImages.map((i: any) => ({ ...i, eventType: 'IMAGE' })),
+        ...recentBugs.map((b: any) => ({ ...b, eventType: 'BUG' })),
+        ...recentProfiles.map((p: any) => ({ ...p, eventType: 'SIGNUP' })),
+        ...recentImageReports.map((ir: any) => ({ ...ir, eventType: 'IMG_REPORT' })),
+    ].sort((a, b) => new Date(b.created_datetime_utc).getTime() - new Date(a.created_datetime_utc).getTime())
      .slice(0, 100);
+
+    // Collect user IDs that need auth metadata (missing first_name)
+    const userIdsNeedingMetadata = new Set<string>();
+    allEvents.forEach(event => {
+        const profile = extractProfileData(event);
+        if (profile?.id && !profile.first_name) {
+            userIdsNeedingMetadata.add(profile.id);
+        }
+    });
+
+    // Fetch auth metadata for users missing names
+    const authMetadataMap = new Map<string, AuthMetadata>();
+    if (userIdsNeedingMetadata.size > 0) {
+        const authPromises = Array.from(userIdsNeedingMetadata).map(async (userId) => {
+            const { data } = await adminClient.auth.admin.getUserById(userId);
+            if (data?.user?.user_metadata) {
+                authMetadataMap.set(userId, data.user.user_metadata as AuthMetadata);
+            }
+        });
+        await Promise.all(authPromises);
+    }
+
+    // Helper to get display name with auth metadata fallback
+    const getDisplayName = (record: any): string => {
+        const profile = extractProfileData(record);
+        if (!profile) return 'Anonymous';
+
+        let firstName = profile.first_name;
+        let lastName = profile.last_name;
+
+        // If no name in profile, try auth metadata
+        if (!firstName && profile.id) {
+            const authMeta = authMetadataMap.get(profile.id);
+            if (authMeta) {
+                firstName = authMeta.first_name || authMeta.full_name?.split(' ')[0];
+                lastName = authMeta.last_name || authMeta.full_name?.split(' ').slice(1).join(' ');
+            }
+        }
+
+        if (firstName) {
+            return `${firstName}${lastName ? ` ${lastName.charAt(0)}.` : ''}`;
+        }
+        return 'Anonymous';
+    };
 
     const formatTime = (dateStr: string) => {
         const date = new Date(dateStr);
@@ -118,10 +184,7 @@ export async function LiveEventFeed() {
                     <div className="divide-y divide-white/5">
                         {allEvents.map((event, idx) => {
                             const config = getEventConfig(event.eventType);
-                            const profile = extractProfile(event);
-                            const userName = profile?.first_name
-                                ? `${profile.first_name}${profile.last_name ? ` ${profile.last_name.charAt(0)}.` : ''}`
-                                : 'Anonymous';
+                            const userName = getDisplayName(event);
 
                             return (
                                 <div
