@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { DeleteCaptionModal } from "./DeleteCaptionModal";
 import { EditCaptionModal } from "./EditCaptionModal";
 import { VotersModal } from "./VotersModal";
+import { BulkDeleteCaptionsModal } from "./BulkDeleteCaptionsModal";
 
 interface Caption {
   id: string;
@@ -35,6 +36,8 @@ export function RatedCaptionsList() {
   const [captionToDelete, setCaptionToDelete] = useState<CaptionWithDetails | null>(null);
   const [captionToEdit, setCaptionToEdit] = useState<CaptionWithDetails | null>(null);
   const [captionToShowVoters, setCaptionToShowVoters] = useState<CaptionWithDetails | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
 
   const fetchCaptions = useCallback(async (offset: number = 0, append: boolean = false) => {
     if (append) {
@@ -100,6 +103,32 @@ export function RatedCaptionsList() {
     return caption.content || caption.llmResponse || null;
   };
 
+  const handleSelectAll = () => {
+    if (selectedIds.size === captions.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(captions.map(c => c.id)));
+    }
+  };
+
+  const handleSelectOne = (id: string) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const handleBulkDeleted = (deletedIds: string[]) => {
+    setShowBulkDeleteModal(false);
+    setCaptions(prev => prev.filter(c => !deletedIds.includes(c.id)));
+    setSelectedIds(new Set());
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -118,11 +147,37 @@ export function RatedCaptionsList() {
 
   return (
     <>
+      {/* Bulk Actions Header */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-sm font-medium text-purple-600 dark:text-purple-400">
+            {selectedIds.size} selected
+          </span>
+          <button
+            onClick={() => setShowBulkDeleteModal(true)}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Delete Selected
+          </button>
+        </div>
+      )}
+
       <div className="glass-card overflow-hidden rounded-xl">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-border bg-purple-500/5">
+                <th className="px-4 py-4 text-left">
+                  <input
+                    type="checkbox"
+                    checked={captions.length > 0 && selectedIds.size === captions.length}
+                    onChange={handleSelectAll}
+                    className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                  />
+                </th>
                 <th className="px-6 py-4 text-left text-sm font-medium text-muted">Caption</th>
                 <th className="px-6 py-4 text-left text-sm font-medium text-muted">Creator</th>
                 <th className="px-6 py-4 text-left text-sm font-medium text-muted">Created</th>
@@ -133,13 +188,21 @@ export function RatedCaptionsList() {
             <tbody className="divide-y divide-border">
               {captions.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-muted">
+                  <td colSpan={6} className="px-6 py-8 text-center text-muted">
                     No rated captions found.
                   </td>
                 </tr>
               ) : (
                 captions.map((caption) => (
-                  <tr key={caption.id} className="transition-colors hover:bg-purple-500/5">
+                  <tr key={caption.id} className={`transition-colors hover:bg-purple-500/5 ${selectedIds.has(caption.id) ? "bg-purple-500/10" : ""}`}>
+                    <td className="px-4 py-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(caption.id)}
+                        onChange={() => handleSelectOne(caption.id)}
+                        className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                      />
+                    </td>
                     <td className="px-6 py-4">
                       <div className="max-w-md">
                         <p className="text-sm font-medium text-foreground line-clamp-2">
@@ -264,6 +327,17 @@ export function RatedCaptionsList() {
           captionId={captionToShowVoters.id}
           captionText={getCaptionText(captionToShowVoters)}
           onClose={() => setCaptionToShowVoters(null)}
+        />
+      )}
+
+      {/* Bulk Delete Modal */}
+      {showBulkDeleteModal && (
+        <BulkDeleteCaptionsModal
+          captions={captions
+            .filter(c => selectedIds.has(c.id))
+            .map(c => ({ id: c.id, content: getCaptionText(c) }))}
+          onClose={() => setShowBulkDeleteModal(false)}
+          onDeleted={handleBulkDeleted}
         />
       )}
     </>
