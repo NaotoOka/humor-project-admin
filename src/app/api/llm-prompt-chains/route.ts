@@ -42,7 +42,8 @@ export async function GET(request: NextRequest) {
     if (error) throw error;
 
     // Fetch related llm_model_responses for each chain
-    const chainIds = chains?.map(c => c.id) || [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chainIds = chains?.map((c: any) => c.id) || [];
     let responsesMap: Record<number, Array<{
       id: string;
       llm_model_response: string | null;
@@ -93,7 +94,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Attach responses to chains
-    const chainsWithResponses = chains?.map(chain => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chainsWithResponses = chains?.map((chain: any) => ({
       ...chain,
       llm_model_responses: responsesMap[chain.id] || [],
     })) || [];
