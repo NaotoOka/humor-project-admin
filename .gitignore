@@ -43,6 +43,7 @@ next-env.d.ts
 schema-policies.js
 AdminAcess.ts
 AUTH_SETUP_GUIDE.md
+schema.sql
 
 
 

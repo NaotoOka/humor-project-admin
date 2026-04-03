@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLayout } from "@/components/AdminLayout";
 import { AccessControlManager } from "@/components/AccessControlManager";
+import { WhitelistEmailsManager } from "@/components/WhitelistEmailsManager";
 import { redirect } from "next/navigation";
 
 export default async function CampusControlPage() {
@@ -41,6 +42,12 @@ export default async function CampusControlPage() {
         .from("allowed_signup_domains")
         .select("*")
         .order("apex_domain");
+
+    // Fetch Whitelisted Emails
+    const { data: whitelistEmails } = await adminClient
+        .from("whitelist_email_addresses")
+        .select("*")
+        .order("email_address");
 
     return (
         <AdminLayout user={user}>
@@ -111,10 +118,13 @@ export default async function CampusControlPage() {
                         </div>
                     </section>
 
-                    {/* Access Control - Domains */}
-                    <section>
+                    {/* Access Control */}
+                    <section className="space-y-6">
                         <AccessControlManager
                             domains={domains || []}
+                        />
+                        <WhitelistEmailsManager
+                            emails={whitelistEmails || []}
                         />
                     </section>
                 </div>

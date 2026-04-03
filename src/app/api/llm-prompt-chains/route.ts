@@ -28,27 +28,6 @@ export async function GET(request: NextRequest) {
           profile_id,
           image_id,
           created_datetime_utc
-        ),
-        llm_model_responses (
-          id,
-          llm_model_response,
-          processing_time_seconds,
-          llm_temperature,
-          llm_system_prompt,
-          llm_user_prompt,
-          llm_models (
-            id,
-            name,
-            llm_providers (
-              id,
-              name
-            )
-          ),
-          humor_flavors (
-            id,
-            slug,
-            description
-          )
         )
       `)
       .order("created_datetime_utc", { ascending: false })
@@ -62,9 +41,66 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
+    // Fetch related llm_model_responses for each chain
+    const chainIds = chains?.map(c => c.id) || [];
+    let responsesMap: Record<number, Array<{
+      id: string;
+      llm_model_response: string | null;
+      processing_time_seconds: number;
+      llm_temperature: number | null;
+      llm_system_prompt: string;
+      llm_user_prompt: string;
+      llm_models: { id: number; name: string; llm_providers: { id: number; name: string } | null } | null;
+      humor_flavors: { id: number; slug: string; description: string | null } | null;
+    }>> = {};
+
+    if (chainIds.length > 0) {
+      const { data: responses } = await adminClient
+        .from("llm_model_responses")
+        .select(`
+          id,
+          llm_model_response,
+          processing_time_seconds,
+          llm_temperature,
+          llm_system_prompt,
+          llm_user_prompt,
+          llm_prompt_chain_id,
+          llm_models (
+            id,
+            name,
+            llm_providers (
+              id,
+              name
+            )
+          ),
+          humor_flavors (
+            id,
+            slug,
+            description
+          )
+        `)
+        .in("llm_prompt_chain_id", chainIds);
+
+      // Group responses by chain ID
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (responses || []).forEach((resp: any) => {
+        const chainId = resp.llm_prompt_chain_id;
+        if (!responsesMap[chainId]) {
+          responsesMap[chainId] = [];
+        }
+        responsesMap[chainId].push(resp);
+      });
+    }
+
+    // Attach responses to chains
+    const chainsWithResponses = chains?.map(chain => ({
+      ...chain,
+      llm_model_responses: responsesMap[chain.id] || [],
+    })) || [];
+
     const hasMore = (chains?.length || 0) === limit;
 
-    return NextResponse.json({ chains: chains || [], hasMore });
+    return NextResponse.json({ chains: chainsWithResponses, hasMore });
   } catch (error) {
     console.error("Error fetching LLM prompt chains:", error);
     return NextResponse.json(

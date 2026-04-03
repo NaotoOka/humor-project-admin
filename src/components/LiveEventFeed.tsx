@@ -19,7 +19,6 @@ const EVENT_CONFIG: Record<string, EventType> = {
     SHARE: { type: 'SHARE', icon: '🔗', bgColor: 'bg-blue-500/30', textColor: 'text-blue-300', description: (e) => `shared a meme${e.proper_destination ? ` to ${e.proper_destination}` : ''}` },
     REPORT: { type: 'REPORT', icon: '🚨', bgColor: 'bg-red-500/30', textColor: 'text-red-300', description: (e) => `reported a caption${e.reason ? `: "${e.reason.slice(0, 30)}..."` : ''}` },
     SCREENSHOT: { type: 'SCREENSHOT', icon: '📸', bgColor: 'bg-purple-500/30', textColor: 'text-purple-300', description: () => 'captured a screenshot' },
-    LIKE: { type: 'LIKE', icon: '❤️', bgColor: 'bg-pink-500/30', textColor: 'text-pink-300', description: () => 'liked a caption' },
     SAVE: { type: 'SAVE', icon: '💾', bgColor: 'bg-yellow-500/30', textColor: 'text-yellow-300', description: () => 'saved a caption' },
     VOTE: { type: 'VOTE', icon: '👍', bgColor: 'bg-cyan-500/30', textColor: 'text-cyan-300', description: (e) => `voted ${e.vote_value > 0 ? 'up' : 'down'} on a caption` },
     CAPTION_REQ: { type: 'CAPTION', icon: '✨', bgColor: 'bg-amber-500/30', textColor: 'text-amber-300', description: () => 'requested captions' },
@@ -35,26 +34,25 @@ export async function LiveEventFeed() {
 
     // Helper to safely fetch data - returns empty array on error
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const safeFetch = async (queryBuilder: PromiseLike<{ data: any[] | null; error: any }>): Promise<any[]> => {
+    const safeFetch = async (queryBuilder: PromiseLike<{ data: any[] | null; error: any }>, tableName: string): Promise<any[]> => {
         try {
             const { data, error } = await queryBuilder;
             if (error) {
-                console.error("Query error:", error);
+                console.error(`Query error on ${tableName}:`, error);
                 return [];
             }
             return data || [];
         } catch (err) {
-            console.error("Fetch error:", err);
+            console.error(`Fetch error on ${tableName}:`, err);
             return [];
         }
     };
 
-    // Fetch recent events from multiple tables with proper profile joins
+    // Fetch recent events from multiple tables (without profile joins - we'll fetch profiles separately)
     const [
         recentShares,
         recentReports,
         recentScreenshots,
-        recentLikes,
         recentSaves,
         recentVotes,
         recentCaptionRequests,
@@ -63,32 +61,22 @@ export async function LiveEventFeed() {
         recentProfiles,
         recentImageReports,
     ] = await Promise.all([
-        safeFetch(supabase.from("shares").select("*, profiles!shares_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
-        safeFetch(supabase.from("reported_captions").select("*, profiles!reported_captions_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
-        safeFetch(supabase.from("screenshots").select("*, profiles!screenshots_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
-        safeFetch(supabase.from("caption_likes").select("*, profiles!caption_likes_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
-        safeFetch(supabase.from("caption_saved").select("*, profiles!caption_saved_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
-        safeFetch(supabase.from("caption_votes").select("*, profiles!caption_votes_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
-        safeFetch(supabase.from("caption_requests").select("*, profiles!caption_requests_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
-        safeFetch(supabase.from("images").select("*, profiles!images_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(25)),
-        safeFetch(supabase.from("bug_reports").select("*, profiles!bug_reports_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(20)),
-        safeFetch(supabase.from("profiles").select("first_name, last_name, created_datetime_utc, id").order("created_datetime_utc", { ascending: false }).limit(20)),
-        safeFetch(supabase.from("reported_images").select("*, profiles!reported_images_profile_id_fkey(id, first_name, last_name)").order("created_datetime_utc", { ascending: false }).limit(20)),
+        safeFetch(supabase.from("shares").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "shares"),
+        safeFetch(supabase.from("reported_captions").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "reported_captions"),
+        safeFetch(supabase.from("screenshots").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "screenshots"),
+        safeFetch(supabase.from("caption_saved").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "caption_saved"),
+        safeFetch(supabase.from("caption_votes").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "caption_votes"),
+        safeFetch(supabase.from("caption_requests").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "caption_requests"),
+        safeFetch(supabase.from("images").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "images"),
+        safeFetch(supabase.from("bug_reports").select("*").order("created_datetime_utc", { ascending: false }).limit(20), "bug_reports"),
+        safeFetch(supabase.from("profiles").select("first_name, last_name, created_datetime_utc, id").order("created_datetime_utc", { ascending: false }).limit(20), "profiles"),
+        safeFetch(supabase.from("reported_images").select("*").order("created_datetime_utc", { ascending: false }).limit(20), "reported_images"),
     ]);
-
-    // Helper to extract profile from various data structures
-    const extractProfileData = (record: any): { id?: string; first_name?: string; last_name?: string } | null => {
-        if (record.profiles?.id) return record.profiles;
-        if (record.profile?.id) return record.profile;
-        if (record.id && record.eventType === 'SIGNUP') return record;
-        return null;
-    };
 
     const allEvents = [
         ...recentShares.map((s: any) => ({ ...s, eventType: 'SHARE' })),
         ...recentReports.map((r: any) => ({ ...r, eventType: 'REPORT' })),
         ...recentScreenshots.map((sc: any) => ({ ...sc, eventType: 'SCREENSHOT' })),
-        ...recentLikes.map((l: any) => ({ ...l, eventType: 'LIKE' })),
         ...recentSaves.map((s: any) => ({ ...s, eventType: 'SAVE' })),
         ...recentVotes.map((v: any) => ({ ...v, eventType: 'VOTE' })),
         ...recentCaptionRequests.map((cr: any) => ({ ...cr, eventType: 'CAPTION_REQ' })),
@@ -98,6 +86,37 @@ export async function LiveEventFeed() {
         ...recentImageReports.map((ir: any) => ({ ...ir, eventType: 'IMG_REPORT' })),
     ].sort((a, b) => new Date(b.created_datetime_utc).getTime() - new Date(a.created_datetime_utc).getTime())
      .slice(0, 100);
+
+    // Collect all unique profile IDs from events
+    const allProfileIds = new Set<string>();
+    allEvents.forEach(event => {
+        if (event.profile_id) allProfileIds.add(event.profile_id);
+        if (event.eventType === 'SIGNUP' && event.id) allProfileIds.add(event.id);
+    });
+
+    // Fetch profile data for all users in one query
+    const profileMap = new Map<string, { id: string; first_name?: string | null; last_name?: string | null }>();
+    if (allProfileIds.size > 0) {
+        const profileIds = Array.from(allProfileIds);
+        const { data: profilesData } = await supabase
+            .from("profiles")
+            .select("id, first_name, last_name")
+            .in("id", profileIds);
+        if (profilesData) {
+            (profilesData as { id: string; first_name: string | null; last_name: string | null }[]).forEach(p => profileMap.set(p.id, p));
+        }
+    }
+
+    // Helper to extract profile from map
+    const extractProfileData = (record: any): { id?: string; first_name?: string | null; last_name?: string | null } | null => {
+        if (record.eventType === 'SIGNUP' && record.id) {
+            return profileMap.get(record.id) || { id: record.id, first_name: record.first_name, last_name: record.last_name };
+        }
+        if (record.profile_id) {
+            return profileMap.get(record.profile_id) || { id: record.profile_id };
+        }
+        return null;
+    };
 
     // Collect user IDs that need auth metadata (missing first_name)
     const userIdsNeedingMetadata = new Set<string>();
