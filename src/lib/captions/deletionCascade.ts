@@ -9,7 +9,7 @@ type SupabaseClientType = SupabaseClient<Database>;
  */
 const CAPTION_RELATED_TABLES = [
   "caption_likes",
-  "caption_saved",
+  "caption_saves",
   "caption_votes",
   "screenshots",
   "shares",

@@ -64,7 +64,7 @@ export async function LiveEventFeed() {
         safeFetch(supabase.from("shares").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "shares"),
         safeFetch(supabase.from("reported_captions").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "reported_captions"),
         safeFetch(supabase.from("screenshots").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "screenshots"),
-        safeFetch(supabase.from("caption_saved").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "caption_saved"),
+        safeFetch(supabase.from("caption_saves").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "caption_saves"),
         safeFetch(supabase.from("caption_votes").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "caption_votes"),
         safeFetch(supabase.from("caption_requests").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "caption_requests"),
         safeFetch(supabase.from("images").select("*").order("created_datetime_utc", { ascending: false }).limit(25), "images"),

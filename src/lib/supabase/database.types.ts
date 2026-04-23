@@ -127,7 +127,7 @@ export interface Database {
           image_id?: string;
         };
       };
-      caption_saved: {
+      caption_saves: {
         Row: {
           id: number;
           created_datetime_utc: string;
@@ -538,6 +538,8 @@ export interface Database {
           image_description: string | null;
           celebrity_recognition: string | null;
           embedding: unknown | null;
+          created_by_user_id: string;
+          modified_by_user_id: string;
         };
         Insert: {
           id?: string;
@@ -551,6 +553,8 @@ export interface Database {
           image_description?: string | null;
           celebrity_recognition?: string | null;
           embedding?: unknown | null;
+          created_by_user_id: string;
+          modified_by_user_id: string;
         };
         Update: {
           id?: string;
@@ -564,6 +568,8 @@ export interface Database {
           image_description?: string | null;
           celebrity_recognition?: string | null;
           embedding?: unknown | null;
+          created_by_user_id?: string;
+          modified_by_user_id?: string;
         };
       };
       invitations: {

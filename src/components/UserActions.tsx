@@ -69,7 +69,7 @@ export function UserActions({ userId, profile }: UserActionsProps) {
       // Delete in order to respect foreign key constraints
       // 1. Delete caption-related data
       await supabase.from("caption_likes").delete().eq("profile_id", userId);
-      await supabase.from("caption_saved").delete().eq("profile_id", userId);
+      await supabase.from("caption_saves").delete().eq("profile_id", userId);
       await supabase.from("caption_votes").delete().eq("profile_id", userId);
       await supabase.from("screenshots").delete().eq("profile_id", userId);
       await supabase.from("shares").delete().eq("profile_id", userId);
@@ -103,7 +103,7 @@ export function UserActions({ userId, profile }: UserActionsProps) {
         const captionIds = userCaptions.map((c) => c.id);
         // Delete likes/saves/votes/screenshots/shares/reports on user's captions
         await supabase.from("caption_likes").delete().in("caption_id", captionIds);
-        await supabase.from("caption_saved").delete().in("caption_id", captionIds);
+        await supabase.from("caption_saves").delete().in("caption_id", captionIds);
         await supabase.from("caption_votes").delete().in("caption_id", captionIds);
         await supabase.from("screenshots").delete().in("caption_id", captionIds);
         await supabase.from("shares").delete().in("caption_id", captionIds);

@@ -94,7 +94,7 @@ export default async function UserDetailPage({ params }: PageProps) {
 
   // Fetch user's saves
   const { count: saveCount } = await supabase
-    .from("caption_saved")
+    .from("caption_saves")
     .select("*", { count: "exact", head: true })
     .eq("profile_id", userId);
 

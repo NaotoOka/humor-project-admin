@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { Database } from "@/lib/supabase/database.types";
 
 const PIPELINE_API_URL = "https://api.almostcrackd.ai";
 
@@ -56,11 +55,14 @@ export async function GET(request: NextRequest) {
 // POST - Upload new image via pipeline API
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { session } } = await supabase.auth.getSession();
 
-  if (!user) {
+  if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const user = session.user;
+  const accessToken = session.access_token;
 
   try {
     const formData = await request.formData();
@@ -75,8 +77,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate file type
-    if (!file.type.startsWith("image/")) {
-      return NextResponse.json({ error: "File must be an image" }, { status: 400 });
+    const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif", "image/heic"];
+    if (!validTypes.includes(file.type)) {
+      return NextResponse.json({ error: "Unsupported image type. Supported: JPEG, PNG, WebP, GIF, HEIC" }, { status: 400 });
     }
 
     // Validate file size (max 10MB)
@@ -89,11 +92,11 @@ export async function POST(request: NextRequest) {
     const presignedResponse = await fetch(`${PIPELINE_API_URL}/pipeline/generate-presigned-url`, {
       method: "POST",
       headers: {
+        "Authorization": `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        filename: file.name,
-        content_type: file.type,
+        contentType: file.type,
       }),
     });
 
@@ -104,15 +107,15 @@ export async function POST(request: NextRequest) {
     }
 
     const presignedData = await presignedResponse.json();
-    const { presigned_url, cdn_url } = presignedData;
+    const { presignedUrl, cdnUrl } = presignedData;
 
-    if (!presigned_url) {
+    if (!presignedUrl) {
       return NextResponse.json({ error: "Invalid presigned URL response" }, { status: 500 });
     }
 
     // Step 2: Upload image to presigned URL
     const fileBuffer = await file.arrayBuffer();
-    const uploadResponse = await fetch(presigned_url, {
+    const uploadResponse = await fetch(presignedUrl, {
       method: "PUT",
       headers: {
         "Content-Type": file.type,
@@ -125,55 +128,49 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Failed to upload image" }, { status: 500 });
     }
 
-    // Step 3: Register the image with the pipeline (if cdn_url not returned directly)
-    let imageUrl = cdn_url;
-    if (!imageUrl) {
-      const registerResponse = await fetch(`${PIPELINE_API_URL}/pipeline/upload-image-from-url`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          url: presigned_url.split("?")[0], // URL without query params
-        }),
-      });
+    // Step 3: Register the image with the pipeline to get final CDN URL
+    const registerResponse = await fetch(`${PIPELINE_API_URL}/pipeline/upload-image-from-url`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        imageUrl: cdnUrl,
+        isCommonUse: isCommonUse,
+      }),
+    });
 
-      if (!registerResponse.ok) {
-        console.error("Failed to register image with pipeline");
-        return NextResponse.json({ error: "Failed to register image" }, { status: 500 });
-      }
-
-      const registerData = await registerResponse.json();
-      imageUrl = registerData.cdn_url || registerData.url;
+    if (!registerResponse.ok) {
+      const errorData = await registerResponse.json().catch(() => ({}));
+      console.error("Failed to register image with pipeline:", errorData);
+      return NextResponse.json({ error: "Failed to register image" }, { status: 500 });
     }
 
-    if (!imageUrl) {
-      return NextResponse.json({ error: "Failed to get CDN URL" }, { status: 500 });
-    }
+    const registerData = await registerResponse.json();
+    const pipelineImageId = registerData.imageId;
 
-    // Step 4: Insert image record into Supabase
+    // The pipeline already inserted the image record into the database
+    // We just need to update it with additional fields (is_public, additional_context, image_description)
     const adminClient = createAdminClient();
 
-    const insertPayload: Database["public"]["Tables"]["images"]["Insert"] = {
-      url: imageUrl,
-      is_common_use: isCommonUse,
-      is_public: isPublic,
-      profile_id: user.id,
-      additional_context: additionalContext || null,
-      image_description: imageDescription || null,
-    };
-
-    const { data: newImage, error: insertError } = await adminClient
-      .from("images")
-      .insert(insertPayload as any)
+    const { data: updatedImage, error: updateError } = await (adminClient
+      .from("images") as any)
+      .update({
+        is_public: isPublic,
+        additional_context: additionalContext || null,
+        image_description: imageDescription || null,
+        modified_by_user_id: user.id,
+      })
+      .eq("id", pipelineImageId)
       .select()
       .single();
 
-    if (insertError) {
-      throw insertError;
+    if (updateError) {
+      throw updateError;
     }
 
-    return NextResponse.json({ image: newImage }, { status: 201 });
+    return NextResponse.json({ image: updatedImage }, { status: 201 });
   } catch (error) {
     console.error("Error creating image:", error);
     return NextResponse.json(

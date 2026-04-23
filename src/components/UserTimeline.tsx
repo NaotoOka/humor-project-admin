@@ -139,7 +139,7 @@ export function UserTimeline({ userId }: UserTimelineProps) {
 
       // Fetch saves
       const { data: saves } = await supabase
-        .from("caption_saved")
+        .from("caption_saves")
         .select("id, created_datetime_utc, caption_id, captions(content)")
         .eq("profile_id", userId)
         .order("created_datetime_utc", { ascending: false })
