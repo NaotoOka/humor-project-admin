@@ -8,7 +8,6 @@ import type {
 
 type SortKey = "totalVotes" | "votesPerCaption";
 type SortDirection = "asc" | "desc";
-type ViewMode = "most_active" | "most_engaging";
 
 // Minimum votes to highlight top 3
 const MIN_VOTES_FOR_HIGHLIGHT = 10;
@@ -103,7 +102,6 @@ export function HumorFlavorPerformance() {
   const [hasAnyMeaningfulData, setHasAnyMeaningfulData] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("totalVotes");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
-  const [viewMode, setViewMode] = useState<ViewMode>("most_active");
 
   useEffect(() => {
     fetchData();
@@ -136,16 +134,6 @@ export function HumorFlavorPerformance() {
     }
   };
 
-  const handleViewModeChange = (mode: ViewMode) => {
-    setViewMode(mode);
-    if (mode === "most_active") {
-      setSortKey("totalVotes");
-    } else {
-      setSortKey("votesPerCaption");
-    }
-    setSortDirection("desc");
-  };
-
   const sortedData = useMemo(() => {
     return [...data].sort((a, b) => {
       let aVal: number;
@@ -176,13 +164,6 @@ export function HumorFlavorPerformance() {
       .filter((f) => f.totalVotes > 0)
       .sort((a, b) => b.totalVotes - a.totalVotes)
       .map((f) => ({ label: f.slug, value: f.totalVotes }));
-  }, [data]);
-
-  const chartDataByEngagement = useMemo(() => {
-    return [...data]
-      .filter((f) => f.votesPerCaption !== null && f.votesPerCaption > 0)
-      .sort((a, b) => (b.votesPerCaption ?? 0) - (a.votesPerCaption ?? 0))
-      .map((f) => ({ label: f.slug, value: f.votesPerCaption ?? 0 }));
   }, [data]);
 
   const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
@@ -237,37 +218,9 @@ export function HumorFlavorPerformance() {
         </p>
       </div>
 
-      {/* View Mode Tabs */}
-      <div className="flex gap-2 border-b border-border">
-        <button
-          onClick={() => handleViewModeChange("most_active")}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            viewMode === "most_active"
-              ? "border-purple-500 text-purple-500"
-              : "border-transparent text-muted hover:text-foreground"
-          }`}
-        >
-          Most Active
-        </button>
-        <button
-          onClick={() => handleViewModeChange("most_engaging")}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            viewMode === "most_engaging"
-              ? "border-purple-500 text-purple-500"
-              : "border-transparent text-muted hover:text-foreground"
-          }`}
-        >
-          Most Engaging
-        </button>
-      </div>
-
-      {/* Chart - only show one based on view mode */}
+      {/* Chart */}
       <div className="py-2">
-        {viewMode === "most_active" ? (
-          <MiniBarChart data={chartDataByVotes} title="Total Votes by Flavor" />
-        ) : (
-          <MiniBarChart data={chartDataByEngagement} title="Votes per Caption by Flavor" />
-        )}
+        <MiniBarChart data={chartDataByVotes} title="Total Votes by Flavor" />
       </div>
 
       {/* Empty State */}
